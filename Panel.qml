@@ -139,6 +139,7 @@ Panel {
     root.busy = false
     root.statusText = ""
     root.refreshConversations()
+    Qt.callLater(function() { keyCatcher.forceActiveFocus() })
   }
 
   function moveConversationCursor(delta) {
@@ -283,6 +284,10 @@ Panel {
       onMoveRequested: function(dx, dy) {
         if (root.selectedConversation && dx < 0) {
           root.showList()
+          return
+        }
+        if (!root.selectedConversation && dx > 0) {
+          root.activateConversationCursor()
           return
         }
         root.moveConversationCursor(dy)
