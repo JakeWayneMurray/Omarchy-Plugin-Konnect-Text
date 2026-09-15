@@ -525,19 +525,35 @@ Panel {
               width: ListView.view.width
               layoutDirection: modelData.outgoing ? Qt.RightToLeft : Qt.LeftToRight
               Rectangle {
-                width: Math.min(messageText.implicitWidth + Style.space(22), parent.width * 0.86)
-                height: messageText.implicitHeight + Style.space(18)
+                width: Math.min(Math.max(messageText.implicitWidth, senderText.implicitWidth) + Style.space(22), parent.width * 0.86)
+                height: bubbleContent.implicitHeight + Style.space(18)
                 radius: Style.cornerRadius
                 color: modelData.outgoing ? Qt.alpha(Color.accent, 0.23) : Qt.alpha(Color.foreground, 0.08)
-                Text {
-                  id: messageText
+                Column {
+                  id: bubbleContent
                   anchors.fill: parent
                   anchors.margins: Style.space(10)
-                  text: String(modelData.body || "")
-                  color: Color.foreground
-                  font.family: Style.font.family
-                  font.pixelSize: Style.font.body
-                  wrapMode: Text.WordWrap
+                  spacing: Style.space(3)
+                  Text {
+                    id: senderText
+                    visible: modelData.isGroup === true && String(modelData.sender || "").length > 0
+                    text: String(modelData.sender || "")
+                    color: modelData.outgoing ? Color.accent : Qt.darker(Color.foreground, 1.2)
+                    font.family: Style.font.family
+                    font.pixelSize: Style.font.caption
+                    font.bold: true
+                    elide: Text.ElideRight
+                    width: parent.width
+                  }
+                  Text {
+                    id: messageText
+                    width: parent.width
+                    text: String(modelData.body || "")
+                    color: Color.foreground
+                    font.family: Style.font.family
+                    font.pixelSize: Style.font.body
+                    wrapMode: Text.WordWrap
+                  }
                 }
               }
             }

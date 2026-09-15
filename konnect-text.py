@@ -24,6 +24,7 @@ MAX_MESSAGE_BYTES = 64 * 1024
 HISTORY_LIMIT = 10
 CONVERSATION_SYNC_QUIET_SECONDS = 0.35
 CONVERSATION_SYNC_TIMEOUT_SECONDS = 4.0
+EVENT_MULTI_TARGET = 2
 
 
 def output(value):
@@ -238,13 +239,17 @@ def parse_message(raw, device, names):
     if not isinstance(data, list) or len(data) < 9:
         return None
     addresses = []
-    for address in data[2] if isinstance(data[2], list) else []:
+    raw_addresses = data[2] if isinstance(data[2], (list, tuple)) else []
+    for address in raw_addresses:
         if isinstance(address, list):
+            addresses.extend(str(value) for value in address)
+        elif isinstance(address, tuple):
             addresses.extend(str(value) for value in address)
         else:
             addresses.append(str(address))
     addresses = [address for address in addresses if address]
     try:
+        event_field = int(data[0])
         date_ms = int(data[3])
         message_type = int(data[4])
         # KDE Connect's ConversationMessage layout is:
@@ -260,6 +265,13 @@ def parse_message(raw, device, names):
         title = ", ".join(unique_participants[:3]) + " +" + str(len(unique_participants) - 3)
     else:
         title = ", ".join(unique_participants) or "Unknown conversation"
+    is_group = bool(event_field & EVENT_MULTI_TARGET) or len(unique_participants) > 1
+    sender = ""
+    if is_group:
+        if message_type == 1 and addresses:
+            sender = names.get(phone_key(addresses[0]), addresses[0])
+        elif message_type != 1:
+            sender = "You"
     return {
         "deviceId": device["deviceId"],
         "deviceName": device["name"],
@@ -269,6 +281,8 @@ def parse_message(raw, device, names):
         "addresses": addresses,
         "participants": unique_participants,
         "title": title,
+        "isGroup": is_group,
+        "sender": sender,
         "dateMs": date_ms,
         "date": _datetime.datetime.fromtimestamp(
             date_ms / 1000, tz=_datetime.timezone.utc
