@@ -22,6 +22,7 @@ Panel {
   property var conversations: []
   property var messages: []
   property var selectedConversation: null
+  property int conversationIndex: 0
   property int requestGeneration: 0
   readonly property string helperPath: Qt.resolvedUrl("konnect-text.py").toString().replace("file://", "")
   readonly property var barIdentity: hostWidget || root
@@ -82,6 +83,18 @@ Panel {
     root.refreshConversations()
   }
 
+  function moveConversationCursor(delta) {
+    if (root.selectedConversation || root.checking || conversationList.count === 0) return
+    root.conversationIndex = Math.max(0, Math.min(conversationList.count - 1, root.conversationIndex + delta))
+    conversationList.positionViewAtIndex(root.conversationIndex, ListView.Contain)
+  }
+
+  function activateConversationCursor() {
+    if (root.selectedConversation || root.checking || conversationList.count === 0) return
+    var conversation = conversationList.model[root.conversationIndex]
+    if (conversation) root.openConversation(conversation)
+  }
+
   function formatTime(value) {
     var date = new Date(Number(value || 0))
     if (isNaN(date.getTime())) return ""
@@ -133,6 +146,7 @@ Panel {
           return
         }
         root.conversations = data.conversations || []
+        root.conversationIndex = 0
         root.statusText = root.conversations.length > 0 ? "" : "No recent SMS conversations."
       }
     }
@@ -151,6 +165,7 @@ Panel {
         }
         root.messages = data.messages || []
         root.statusText = root.messages.length > 0 ? "" : "No messages loaded yet."
+        if (root.messages.length > 0) Qt.callLater(function() { composer.forceActiveFocus() })
       }
     }
   }
@@ -203,6 +218,8 @@ Panel {
       id: keyCatcher
       anchors.fill: parent
       blocked: searchField.activeFocus || composer.activeFocus
+      onMoveRequested: function(dx, dy) { root.moveConversationCursor(dy) }
+      onActivateRequested: root.activateConversationCursor()
       onCloseRequested: root.close()
     }
 
@@ -262,9 +279,16 @@ Panel {
           id: searchField
           width: parent.width
           placeholderText: "Search recent conversations…"
+          Keys.onPressed: function(event) {
+            if (event.key === Qt.Key_Escape) {
+              root.close()
+              event.accepted = true
+            }
+          }
         }
 
         ListView {
+          id: conversationList
           width: parent.width
           height: Math.min(contentHeight, Style.space(430))
           clip: true
@@ -281,7 +305,7 @@ Panel {
             radius: Style.cornerRadius
             color: conversationMouse.containsMouse ? Qt.alpha(Color.accent, 0.18) : Qt.alpha(Color.foreground, 0.055)
             border.width: 1
-            border.color: Qt.alpha(Color.foreground, 0.09)
+            border.color: index === root.conversationIndex ? Color.accent : Qt.alpha(Color.foreground, 0.09)
             RowLayout {
               anchors.fill: parent
               anchors.margins: Style.space(10)
@@ -334,7 +358,10 @@ Panel {
               id: conversationMouse
               anchors.fill: parent
               hoverEnabled: true
-              onClicked: root.openConversation(modelData)
+              onClicked: {
+                root.conversationIndex = index
+                root.openConversation(modelData)
+              }
             }
           }
         }
@@ -400,6 +427,12 @@ Panel {
             placeholderText: "Message…"
             enabled: !root.busy
             onAccepted: root.sendMessage()
+            Keys.onPressed: function(event) {
+              if (event.key === Qt.Key_Escape) {
+                root.close()
+                event.accepted = true
+              }
+            }
           }
           Button {
             text: root.busy ? "…" : "Send"

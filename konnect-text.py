@@ -21,6 +21,7 @@ DAEMON_IFACE = "org.kde.kdeconnect.daemon"
 DEVICE_IFACE = "org.kde.kdeconnect.device"
 CONVERSATION_IFACE = "org.kde.kdeconnect.device.conversations"
 MAX_MESSAGE_BYTES = 64 * 1024
+HISTORY_LIMIT = 10
 
 
 def output(value):
@@ -272,7 +273,7 @@ def thread(device_id, conversation_id):
             path,
             CONVERSATION_IFACE,
             "requestConversation",
-            GLib.Variant("(xii)", (int(conversation_id), 0, 80)),
+            GLib.Variant("(xii)", (int(conversation_id), 0, HISTORY_LIMIT)),
             None,
             Gio.DBusCallFlags.NONE,
             8000,
@@ -289,11 +290,17 @@ def thread(device_id, conversation_id):
 
     names = contact_names(device_id)
     messages = []
+    seen_ids = set()
     for raw in conversation_response(device_id, request_all=False):
         parsed = parse_message(raw, device, names)
-        if parsed and parsed["conversationId"] == str(conversation_id):
+        if (
+            parsed
+            and parsed["conversationId"] == str(conversation_id)
+            and parsed["messageId"] not in seen_ids
+        ):
+            seen_ids.add(parsed["messageId"])
             messages.append(parsed)
-    messages.sort(key=lambda item: item["dateMs"])
+    messages.sort(key=lambda item: (item["dateMs"], item["messageId"]))
     return messages, ""
 
 
