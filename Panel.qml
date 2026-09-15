@@ -355,7 +355,7 @@ Panel {
         width: parent.width
         spacing: Style.space(9)
         Text {
-          text: root.selectedConversation ? "‹" : "✉"
+          text: root.selectedConversation ? "‹" : "󰐏"
           color: root.bar ? root.bar.foreground : Color.accent
           font.family: Style.font.family
           font.pixelSize: Style.font.display
