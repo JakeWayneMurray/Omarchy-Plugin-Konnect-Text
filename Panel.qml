@@ -300,6 +300,7 @@ Panel {
           })
           delegate: Rectangle {
             required property var modelData
+            required property int index
             width: ListView.view.width
             height: Style.space(64)
             radius: Style.cornerRadius
