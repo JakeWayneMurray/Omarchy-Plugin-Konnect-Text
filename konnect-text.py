@@ -184,8 +184,11 @@ def parse_message(raw, device, names):
     try:
         date_ms = int(data[3])
         message_type = int(data[4])
-        conversation_id = str(data[7])
-        message_id = int(data[8])
+        # KDE Connect's ConversationMessage layout is:
+        # event, body, addresses, date, type, read, threadId, messageId,
+        # subId, attachments.
+        conversation_id = str(data[6])
+        message_id = int(data[7])
     except (TypeError, ValueError, IndexError):
         return None
     participants = [names.get(phone_key(address), address) for address in addresses]
@@ -249,12 +252,43 @@ def thread(device_id, conversation_id):
         return None, "python-gobject is required to load SMS history: " + str(exc)
 
     loop = GLib.MainLoop()
+    names = contact_names(device_id)
+    received = []
+    received_ids = set()
+    expected_count = None
+
+    def add_message(fields):
+        if not isinstance(fields, (tuple, list)):
+            return
+        parsed = parse_message({"data": list(fields)}, device, names)
+        if (
+            parsed
+            and parsed["conversationId"] == str(conversation_id)
+            and parsed["messageId"] not in received_ids
+        ):
+            received_ids.add(parsed["messageId"])
+            received.append(parsed)
 
     def on_loaded(_connection, _sender, object_path, interface, signal, parameters, _data):
         if object_path != path or interface != CONVERSATION_IFACE or signal != "conversationLoaded":
             return
         values = parameters.unpack()
         if values and str(values[0]) == str(conversation_id):
+            nonlocal expected_count
+            try:
+                expected_count = int(values[1])
+            except (IndexError, TypeError, ValueError):
+                expected_count = None
+            if expected_count is not None and len(received) >= min(HISTORY_LIMIT, expected_count):
+                loop.quit()
+
+    def on_updated(_connection, _sender, object_path, interface, signal, parameters, _data):
+        if object_path != path or interface != CONVERSATION_IFACE or signal != "conversationUpdated":
+            return
+        values = parameters.unpack()
+        if values:
+            add_message(values[0])
+        if len(received) >= HISTORY_LIMIT:
             loop.quit()
 
     subscription = bus.signal_subscribe(
@@ -265,6 +299,16 @@ def thread(device_id, conversation_id):
         None,
         Gio.DBusSignalFlags.NONE,
         on_loaded,
+        None,
+    )
+    updated_subscription = bus.signal_subscribe(
+        BUS,
+        CONVERSATION_IFACE,
+        "conversationUpdated",
+        path,
+        None,
+        Gio.DBusSignalFlags.NONE,
+        on_updated,
         None,
     )
     try:
@@ -279,27 +323,24 @@ def thread(device_id, conversation_id):
             8000,
             None,
         )
-        # The request is asynchronous in KDE Connect. Wait for its public
-        # conversationLoaded signal, with a bounded fallback for older peers.
-        GLib.timeout_add(2500, loop.quit)
+        # Requested messages arrive as conversationUpdated signals. Keep a
+        # bounded timeout for older KDE Connect versions or a disconnected
+        # phone, but stop as soon as the requested ten messages arrive.
+        GLib.timeout_add(4000, loop.quit)
         loop.run()
     except Exception as exc:
         return None, "KDE Connect could not request this conversation: " + str(exc)
     finally:
         bus.signal_unsubscribe(subscription)
+        bus.signal_unsubscribe(updated_subscription)
 
-    names = contact_names(device_id)
-    messages = []
-    seen_ids = set()
-    for raw in conversation_response(device_id, request_all=False):
-        parsed = parse_message(raw, device, names)
-        if (
-            parsed
-            and parsed["conversationId"] == str(conversation_id)
-            and parsed["messageId"] not in seen_ids
-        ):
-            seen_ids.add(parsed["messageId"])
-            messages.append(parsed)
+    # Keep the direct D-Bus signal results as the authoritative history. The
+    # activeConversations property intentionally contains only one summary
+    # message per thread, so it is only a compatibility fallback here.
+    messages = received
+    if not messages:
+        for raw in conversation_response(device_id, request_all=False):
+            add_message(raw.get("data") if isinstance(raw, dict) else None)
     messages.sort(key=lambda item: (item["dateMs"], item["messageId"]))
     return messages, ""
 

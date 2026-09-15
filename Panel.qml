@@ -392,9 +392,13 @@ Panel {
           height: Style.space(390)
           clip: true
           ListView {
+            id: messageList
             width: parent.width
             model: root.messages
             spacing: Style.space(6)
+            onCountChanged: {
+              if (count > 0) Qt.callLater(function() { messageList.positionViewAtEnd() })
+            }
             delegate: Row {
               required property var modelData
               width: ListView.view.width

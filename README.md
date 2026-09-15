@@ -6,7 +6,19 @@ five most recently texted conversations, read the thread, and send a reply.
 It uses KDE Connect's public session D-Bus API and does not replace or modify
 `kdeconnectd`. The plugin does not persist SMS content, contacts, device IDs,
 or network addresses. Message text is passed to the helper over stdin rather
-than as a process argument.
+than as a process argument. The conversation list is limited to the five most
+recent threads, and each thread requests at most the ten newest messages.
+
+## Keyboard controls
+
+With the panel open:
+
+- `↑` / `↓` — choose a recent conversation
+- `Enter` — open the selected conversation
+- `Escape` — close the panel
+
+The configured Omarchy shortcut is `Ctrl+Super+Alt+Z`. It toggles the panel,
+so pressing it again closes an open panel.
 
 ## Install
 
