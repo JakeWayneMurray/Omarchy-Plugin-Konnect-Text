@@ -24,6 +24,7 @@ Panel {
   property var selectedConversation: null
   property int conversationIndex: 0
   property int requestGeneration: 0
+  property var pendingMessages: []
   readonly property string helperPath: Qt.resolvedUrl("konnect-text.py").toString().replace("file://", "")
   readonly property var barIdentity: hostWidget || root
 
@@ -57,14 +58,68 @@ Panel {
     listProc.running = true
   }
 
-  function openConversation(conversation) {
+  function openConversation(conversation, preserveMessages) {
     if (!conversation || root.busy) return
     root.selectedConversation = conversation
-    root.messages = []
+    if (!preserveMessages) root.messages = []
     root.busy = true
     root.statusText = "Loading conversation…"
     threadProc.command = [root.helperPath, "thread", String(conversation.deviceId), String(conversation.conversationId)]
     threadProc.running = true
+  }
+
+  function appendOutgoingMessage(text) {
+    var sentAt = Date.now()
+    var sent = {
+      deviceId: root.selectedConversation.deviceId,
+      deviceName: root.selectedConversation.deviceName,
+      conversationId: root.selectedConversation.conversationId,
+      messageId: -sentAt,
+      body: text,
+      participants: root.selectedConversation.participants || [],
+      title: root.selectedConversation.title,
+      dateMs: sentAt,
+      incoming: false,
+      outgoing: true,
+      read: true,
+      pending: true
+    }
+    root.pendingMessages = root.pendingMessages.concat([sent])
+    root.messages = root.messages.concat([sent])
+    Qt.callLater(function() { messageList.positionViewAtEnd() })
+  }
+
+  function mergePendingMessages(loaded) {
+    var next = (loaded || []).slice()
+    var remaining = []
+    for (var i = 0; i < root.pendingMessages.length; i++) {
+      var pending = root.pendingMessages[i]
+      var sameConversation = root.selectedConversation
+        && String(pending.deviceId) === String(root.selectedConversation.deviceId)
+        && String(pending.conversationId) === String(root.selectedConversation.conversationId)
+      if (!sameConversation) {
+        remaining.push(pending)
+        continue
+      }
+      var confirmed = false
+      for (var j = 0; j < next.length; j++) {
+        var actual = next[j]
+        if (actual.outgoing && String(actual.body) === String(pending.body)
+            && Math.abs(Number(actual.dateMs) - Number(pending.dateMs)) <= 120000) {
+          confirmed = true
+          break
+        }
+      }
+      if (!confirmed) {
+        remaining.push(pending)
+        next.push(pending)
+      }
+    }
+    root.pendingMessages = remaining
+    next.sort(function(left, right) {
+      return Number(left.dateMs || 0) - Number(right.dateMs || 0)
+    })
+    return next
   }
 
   function sendMessage() {
@@ -73,12 +128,15 @@ Panel {
     root.statusText = "Sending message…"
     sendProc.command = [root.helperPath, "send", String(root.selectedConversation.deviceId), String(root.selectedConversation.conversationId)]
     sendProc.message = composer.text
+    sendProc.sentMessage = composer.text
     sendProc.running = true
   }
 
   function showList() {
+    if (threadProc.running) threadProc.running = false
     root.selectedConversation = null
     root.messages = []
+    root.busy = false
     root.statusText = ""
     root.refreshConversations()
   }
@@ -163,7 +221,7 @@ Panel {
           root.statusText = String(data.error || "Could not load this conversation.")
           return
         }
-        root.messages = data.messages || []
+        root.messages = root.mergePendingMessages(data.messages || [])
         root.statusText = root.messages.length > 0 ? "" : "No messages loaded yet."
         if (root.messages.length > 0) Qt.callLater(function() { composer.forceActiveFocus() })
       }
@@ -173,6 +231,7 @@ Panel {
   Process {
     id: sendProc
     property string message: ""
+    property string sentMessage: ""
     stdinEnabled: true
     onStarted: {
       write(message + "\n")
@@ -185,9 +244,12 @@ Panel {
         var data = root.parseOutput(text, "Could not send message.")
         root.busy = false
         if (data.ok !== true) {
+          sendProc.sentMessage = ""
           root.statusText = String(data.error || "Could not send message.")
           return
         }
+        root.appendOutgoingMessage(sendProc.sentMessage)
+        sendProc.sentMessage = ""
         composer.text = ""
         root.statusText = "Message sent."
         refreshDelay.restart()
@@ -199,7 +261,7 @@ Panel {
     id: refreshDelay
     interval: 500
     onTriggered: {
-      if (root.selectedConversation) root.openConversation(root.selectedConversation)
+      if (root.selectedConversation) root.openConversation(root.selectedConversation, true)
       else root.refreshConversations()
     }
   }
@@ -218,7 +280,13 @@ Panel {
       id: keyCatcher
       anchors.fill: parent
       blocked: searchField.activeFocus || composer.activeFocus
-      onMoveRequested: function(dx, dy) { root.moveConversationCursor(dy) }
+      onMoveRequested: function(dx, dy) {
+        if (root.selectedConversation && dx < 0) {
+          root.showList()
+          return
+        }
+        root.moveConversationCursor(dy)
+      }
       onActivateRequested: root.activateConversationCursor()
       onCloseRequested: root.close()
     }
@@ -435,6 +503,9 @@ Panel {
             Keys.onPressed: function(event) {
               if (event.key === Qt.Key_Escape) {
                 root.close()
+                event.accepted = true
+              } else if (event.key === Qt.Key_Left && event.modifiers === Qt.NoModifier) {
+                root.showList()
                 event.accepted = true
               }
             }
