@@ -45,4 +45,11 @@ BarWidget {
       if (buttonCode === Qt.LeftButton) root.toggle()
     }
   }
+
+  IpcHandler {
+    target: "io.github.jakewaynemurray.konnect-text"
+    function open(): string { root.open(); return "open" }
+    function close(): string { root.close(); return "closed" }
+    function toggle(): string { root.toggle(); return root.opened ? "open" : "closed" }
+  }
 }
