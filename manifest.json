@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.jakewaynemurray.konnect-text",
+  "name": "Konnect Text",
+  "version": "0.1.0",
+  "author": "Jake Wayne Murray",
+  "license": "MIT",
+  "homepage": "https://github.com/JakeWayneMurray/Omarchy-Plugin-Konnect-Text",
+  "description": "Read and send recent SMS conversations through KDE Connect.",
+  "kinds": ["bar-widget"],
+  "activation": "on-demand",
+  "entryPoints": {"barWidget": "BarWidget.qml"},
+  "barWidget": {
+    "displayName": "Konnect Text",
+    "description": "Open the five most recently texted conversations and send messages through KDE Connect.",
+    "category": "Communication",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}
