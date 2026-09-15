@@ -40,7 +40,7 @@ BarWidget {
     id: button
     anchors.fill: parent
     bar: root.bar
-    text: "󰐏"
+    text: "☏"
     active: root.opened
     tooltipText: "Open Konnect Text"
     onPressed: function(buttonCode) {
