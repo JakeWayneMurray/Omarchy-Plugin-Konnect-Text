@@ -22,6 +22,8 @@ DEVICE_IFACE = "org.kde.kdeconnect.device"
 CONVERSATION_IFACE = "org.kde.kdeconnect.device.conversations"
 MAX_MESSAGE_BYTES = 64 * 1024
 HISTORY_LIMIT = 10
+CONVERSATION_SYNC_QUIET_SECONDS = 0.35
+CONVERSATION_SYNC_TIMEOUT_SECONDS = 4.0
 
 
 def output(value):
@@ -119,7 +121,7 @@ def devices():
 def conversation_response(device_id, request_all=True):
     path = device_path(device_id)
     if request_all:
-        run_busctl(["call", BUS, path, CONVERSATION_IFACE, "requestAllConversationThreads"], timeout=8)
+        wait_for_conversation_sync(device_id)
     response = run_json_call(path, CONVERSATION_IFACE, "activeConversations")
     if not response:
         return []
@@ -127,6 +129,67 @@ def conversation_response(device_id, request_all=True):
         return response["data"][0]
     except (KeyError, IndexError, TypeError):
         return []
+
+
+def wait_for_conversation_sync(device_id):
+    """Wait for KDE Connect's asynchronous conversation refresh to settle."""
+    path = device_path(device_id)
+    try:
+        import gi
+
+        gi.require_version("Gio", "2.0")
+        from gi.repository import Gio, GLib
+        bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+    except Exception:
+        # Keep compatibility with installations that can read D-Bus through
+        # busctl but do not have PyGObject available for signal handling.
+        run_busctl(["call", BUS, path, CONVERSATION_IFACE, "requestAllConversationThreads"], timeout=8)
+        time.sleep(1.0)
+        return
+
+    loop = GLib.MainLoop()
+    state = {"seen": False, "lastSignal": 0.0}
+
+    def on_loaded(_connection, _sender, object_path, interface, signal, _parameters, _data):
+        if object_path == path and interface == CONVERSATION_IFACE and signal == "conversationLoaded":
+            state["seen"] = True
+            state["lastSignal"] = time.monotonic()
+
+    def finish_when_quiet():
+        if state["seen"] and time.monotonic() - state["lastSignal"] >= CONVERSATION_SYNC_QUIET_SECONDS:
+            loop.quit()
+            return False
+        return True
+
+    subscription = bus.signal_subscribe(
+        BUS,
+        CONVERSATION_IFACE,
+        "conversationLoaded",
+        path,
+        None,
+        Gio.DBusSignalFlags.NONE,
+        on_loaded,
+        None,
+    )
+    try:
+        bus.call_sync(
+            BUS,
+            path,
+            CONVERSATION_IFACE,
+            "requestAllConversationThreads",
+            None,
+            None,
+            Gio.DBusCallFlags.NONE,
+            8000,
+            None,
+        )
+        GLib.timeout_add(100, finish_when_quiet)
+        GLib.timeout_add(int(CONVERSATION_SYNC_TIMEOUT_SECONDS * 1000), loop.quit)
+        loop.run()
+    except Exception:
+        pass
+    finally:
+        bus.signal_unsubscribe(subscription)
 
 
 def phone_key(number):
