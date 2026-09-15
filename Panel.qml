@@ -25,6 +25,7 @@ Panel {
   property int conversationIndex: 0
   property int requestGeneration: 0
   property var pendingMessages: []
+  property var recentSentPreviews: []
   readonly property string helperPath: Qt.resolvedUrl("konnect-text.py").toString().replace("file://", "")
   readonly property var barIdentity: hostWidget || root
 
@@ -85,8 +86,55 @@ Panel {
       pending: true
     }
     root.pendingMessages = root.pendingMessages.concat([sent])
+    var previews = []
+    var sentKey = root.conversationKey(sent)
+    for (var i = 0; i < root.recentSentPreviews.length; i++) {
+      if (root.conversationKey(root.recentSentPreviews[i]) !== sentKey)
+        previews.push(root.recentSentPreviews[i])
+    }
+    previews.push(sent)
+    root.recentSentPreviews = previews
     root.messages = root.messages.concat([sent])
     Qt.callLater(function() { messageList.positionViewAtEnd() })
+  }
+
+  function conversationKey(conversation) {
+    return String(conversation.deviceId) + "\n" + String(conversation.conversationId)
+  }
+
+  function mergeRecentSentPreviews(loaded) {
+    var next = (loaded || []).slice()
+    var remaining = []
+    for (var i = 0; i < root.recentSentPreviews.length; i++) {
+      var preview = root.recentSentPreviews[i]
+      var foundIndex = -1
+      for (var j = 0; j < next.length; j++) {
+        if (root.conversationKey(next[j]) === root.conversationKey(preview)) {
+          foundIndex = j
+          break
+        }
+      }
+      if (foundIndex < 0) {
+        next.push(preview)
+        remaining.push(preview)
+        continue
+      }
+      var current = next[foundIndex]
+      if (Number(current.dateMs || 0) >= Number(preview.dateMs || 0)) continue
+      var updated = {}
+      for (var field in current) updated[field] = current[field]
+      updated.body = preview.body
+      updated.dateMs = preview.dateMs
+      updated.outgoing = true
+      updated.read = true
+      next[foundIndex] = updated
+      remaining.push(preview)
+    }
+    root.recentSentPreviews = remaining
+    next.sort(function(left, right) {
+      return Number(right.dateMs || 0) - Number(left.dateMs || 0)
+    })
+    return next.slice(0, 5)
   }
 
   function mergePendingMessages(loaded) {
@@ -204,7 +252,7 @@ Panel {
           root.statusText = String(data.error || "Could not load conversations.")
           return
         }
-        root.conversations = data.conversations || []
+        root.conversations = root.mergeRecentSentPreviews(data.conversations || [])
         root.conversationIndex = 0
         root.statusText = root.conversations.length > 0 ? "" : "No recent SMS conversations."
       }
